@@ -279,6 +279,17 @@ class CallService:
                 _analyze_and_update_summary(call.id, transcript, business_outcome, is_opt_out)
             )
 
+        # ── Spawn WhatsApp Follow-up (Non-blocking) ───────────────────
+        if contact and contact.phone:
+            if business_outcome == "No Answer":
+                import asyncio
+                from whatsapp.actions import dispatch_whatsapp_action
+                asyncio.create_task(dispatch_whatsapp_action(contact.phone, "missed_call", contact.customer_name or ""))
+            elif business_outcome == "No Answer / Cut":
+                import asyncio
+                from whatsapp.actions import dispatch_whatsapp_action
+                asyncio.create_task(dispatch_whatsapp_action(contact.phone, "busy", contact.customer_name or ""))
+
         return call
 
     @staticmethod
@@ -326,4 +337,16 @@ class CallService:
                         campaign.status = "completed"
 
         await db.commit()
+        
+        # ── Spawn WhatsApp Follow-up (Non-blocking) ───────────────────
+        if contact and contact.phone:
+            if contact.response == "No Answer / Declined":
+                import asyncio
+                from whatsapp.actions import dispatch_whatsapp_action
+                asyncio.create_task(dispatch_whatsapp_action(contact.phone, "missed_call", contact.customer_name or ""))
+            elif contact.response == "Call Cut / Disconnected":
+                import asyncio
+                from whatsapp.actions import dispatch_whatsapp_action
+                asyncio.create_task(dispatch_whatsapp_action(contact.phone, "busy", contact.customer_name or ""))
+                
         return call

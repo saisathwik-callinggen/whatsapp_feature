@@ -140,6 +140,10 @@ RULES:
 - Do not discuss unrelated topics.
 - Follow the custom script below faithfully.
 
+WHATSAPP ACTION RULES:
+- If the customer asks for a brochure, pricing, catalogue, website, or contact details, you MUST call the `send_whatsapp_material` tool with the corresponding `material_type` (e.g., "brochure", "pricing").
+- The tool will return SUCCESS or FAILURE. Only confirm delivery to the customer IF the tool returns SUCCESS. If it returns FAILURE, politely inform them it couldn't be sent right now.
+
 CAMPAIGN-SPECIFIC SCRIPT:
 {custom_script}
 
@@ -308,6 +312,57 @@ class VoicemailDetector:
                     
             await asyncio.sleep(1.0)
 
+from livekit.agents import function_tool
+
+@function_tool(
+    description="""
+Call this tool when the customer requests specific materials to be sent to their WhatsApp.
+Supported material types: brochure, pricing, catalogue, website, contact_details.
+Only call this if the user explicitly asks for one of these materials.
+The tool will return SUCCESS if sent, or FAILURE if it could not be sent.
+Only confirm delivery to the customer if the tool returns SUCCESS.
+"""
+)
+async def send_whatsapp_material(material_type: str):
+    import os
+    import asyncio
+    print("-" * 50)
+    print(f"AGENT: send_whatsapp_material TOOL INVOKED for {material_type}")
+    print("-" * 50)
+    
+    from app.services.conversation_state import ACTIVE_CALLS
+    from app.database import AsyncSessionLocal
+    from app.models.call import Call
+    from app.models.contact import Contact
+    from whatsapp.actions import dispatch_whatsapp_action
+
+    if not ACTIVE_CALLS:
+        return "FAILURE: No active calls found in memory."
+        
+    # Temporary: assuming single active call context mapping
+    room_name = list(ACTIVE_CALLS.keys())[0]
+    state = ACTIVE_CALLS.get(room_name)
+    if not state:
+        return "FAILURE: Active call state not found."
+        
+    call_id = state.get("call_id")
+    if call_id == -1:
+        return "FAILURE: Invalid call ID."
+        
+    try:
+        async with AsyncSessionLocal() as db:
+            call = await db.get(Call, call_id)
+            if not call:
+                return "FAILURE: Call not found in DB."
+            contact = await db.get(Contact, call.contact_id)
+            if not contact or not contact.phone:
+                return "FAILURE: Customer phone not found."
+                
+            result = await dispatch_whatsapp_action(contact.phone, material_type, contact.customer_name or "")
+            return result
+    except Exception as e:
+        print(f"[agent tool] Error sending material: {e}")
+        return f"FAILURE: Error occurred while sending {material_type}"
 
 
 class DynamicAgent(Agent):
@@ -317,7 +372,7 @@ class DynamicAgent(Agent):
         instructions = build_agent_instructions(agent_type, custom_script, customer_name)
         super().__init__(
             instructions=instructions,
-            tools=[finish_call],
+            tools=[finish_call, send_whatsapp_material],
         )
 
 
@@ -611,9 +666,9 @@ async def entrypoint(ctx: JobContext):
             stt=sarvam.STT(),
 
             llm=openai.LLM(
-                model="deepseek-chat",
-                api_key=os.getenv("DEEPSEEK_API_KEY") or "",
-                base_url="https://api.deepseek.com/v1",
+                model="llama-3.3-70b-versatile",
+                api_key=os.getenv("GROQ_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or "",
+                base_url="https://api.groq.com/openai/v1",
             ),
 
             tts=sarvam.TTS(
@@ -668,18 +723,34 @@ async def entrypoint(ctx: JobContext):
 
         print(f"Registered active call: {ctx.room.name}")
 
-        # Wait for the SIP customer to actually answer and join the room.
-        # Since wait_until_answered=False, the room exists before the call
-        # is picked up, so we must not greet until the participant is present.
-        print("Waiting for customer participant to join...")
+        # Wait for the SIP customer to actually answer the phone call.
+        # When ringing, the participant exists but the audio track is not subscribed yet.
+        # When answered, LiveKit fires 'track_subscribed' for the customer's audio.
+        print("Waiting for customer to answer the phone call...")
+        customer_answered_event = asyncio.Event()
+
+        @ctx.room.on("track_subscribed")
+        def on_track_sub(track: rtc.Track, publication: rtc.TrackPublication, participant: rtc.RemoteParticipant):
+            if participant.identity == "customer" and track.kind == rtc.TrackKind.KIND_AUDIO:
+                print(f"[agent] Customer audio track subscribed: {track.sid}. Call answered!")
+                customer_answered_event.set()
+
+        # Check if audio track is already subscribed
+        for p in ctx.room.remote_participants.values():
+            if p.identity == "customer":
+                for pub in p.track_publications.values():
+                    if pub.track is not None and pub.kind == rtc.TrackKind.KIND_AUDIO:
+                        customer_answered_event.set()
+                        break
+
         customer_joined = False
-        for _ in range(60):  # wait up to 60 seconds
-            participants = ctx.room.remote_participants
-            if any(p.identity == "customer" for p in participants.values()):
-                customer_joined = True
-                print("Customer participant joined — starting greeting.")
-                break
-            await asyncio.sleep(1)
+        try:
+            await asyncio.wait_for(customer_answered_event.wait(), timeout=60.0)
+            customer_joined = True
+            print("Customer answered call! Starting greeting...")
+        except asyncio.TimeoutError:
+            customer_joined = False
+            print("Timeout: customer did not answer within 60 seconds.")
 
         if not customer_joined:
             print("Timeout: customer never joined. Notifying backend and exiting.")
