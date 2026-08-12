@@ -1,76 +1,71 @@
-# WhatsApp Integration & Setup Walkthrough
+# Final Walkthrough: Running the WhatsApp + AI Calling Platform
 
-This document provides complete step-by-step instructions to get the **WhatsApp Integration & AI Voice Calling** system running end-to-end after pulling this codebase.
+This guide walks anyone through running the **CallingGen WhatsApp & AI Calling Platform** end-to-end after pulling the repository.
 
 ---
 
-## 1. Environment Configuration & API Keys
+## 🔑 1. Environment Configuration & API Keys
 
-Before starting the services, ensure your `.env` files are configured properly across all three locations:
-- Root directory: `.env`
-- Backend directory: `BACKEND/.env`
-- Backend app directory: `BACKEND/app/.env`
+After cloning/pulling the repository, create `.env` files in all three environment locations:
+1. Root directory: `.env`
+2. Backend directory: `BACKEND/.env`
+3. Backend app directory: `BACKEND/app/.env`
 
 > **IMPORTANT**:
-> - **DEEPSEEK_API_KEY**: Ensure `DEEPSEEK_API_KEY` is uncommented and set with a valid key.
-> - **GROQ_API_KEY**: Comment out `GROQ_API_KEY` (or set it as fallback) so DeepSeek API is used as the primary LLM provider in every `.env` file.
+> - **Use DEEPSEEK_API_KEY**: Ensure `DEEPSEEK_API_KEY` is uncommented and set with a valid DeepSeek API key in every `.env` file.
+> - **DO NOT USE GROQ_API_KEY**: Leave `GROQ_API_KEY` commented out (`# GROQ_API_KEY=...`) or omitted so DeepSeek remains the primary active LLM.
 
-### Example `.env` Configuration:
+### Complete `.env` Template:
 
 ```env
-# LiveKit Server Settings
+# ── LiveKit Server Configuration ──────────────────────────────────
 LIVEKIT_URL=ws://13.232.26.174:7880
 LIVEKIT_API_KEY=devkey
 LIVEKIT_API_SECRET=devsecret123456789012345678901234567890
 
-# SIP Trunk ID (Vobiz registered trunk)
+# ── SIP Trunk ID (Vobiz Registered Trunk) ────────────────────────
 SIP_TRUNK_ID=ST_3yaCewggPpAs
 
-# Primary LLM API Key (DeepSeek)
+# ── Primary LLM Provider (DeepSeek API Key) ───────────────────────
 DEEPSEEK_API_KEY=sk-your_valid_deepseek_api_key_here
 
-# Alternative LLM API Key (Commented out)
+# ── Secondary LLM Provider (Commented Out) ───────────────────────
 # GROQ_API_KEY=gsk_your_groq_api_key_here
 
-# Speech-to-Text & Text-to-Speech (Sarvam AI)
+# ── Sarvam AI (STT Speech-to-Text & TTS Text-to-Speech) ───────────
 SARVAM_API_KEY=sk_your_sarvam_api_key_here
 
-# Evolution WhatsApp API Settings
+# ── Evolution WhatsApp API Settings ──────────────────────────────
 EVOLUTION_API_URL=http://localhost:8080
 EVOLUTION_API_KEY=MySuperSecretKey123!
 EVOLUTION_INSTANCE_NAME=callinggen_default
 
-# Backend URL
+# ── Backend Base URL ─────────────────────────────────────────────
 BACKEND_URL=http://localhost:8000
 ```
 
 ---
 
-## 2. Step-by-Step Service Startup Guide
+## 🚀 2. Step-by-Step Execution Guide
 
-Follow this sequence to launch all backend components in order:
+Launch all services in the following order:
 
-### **Step 1: Ensure WhatsApp Evolution API is Running**
-Evolution API runs via Docker on port `8080`. Verify it is accessible:
+### **Step 1: Verify WhatsApp Evolution API Service**
+Evolution API runs via Docker on port `8080`. Verify it is online:
 ```bash
 curl http://localhost:8080
 ```
 
 ---
 
-### **Step 2: Connect / Verify WhatsApp Instance**
-To connect your WhatsApp phone number (or check status), navigate to the `BACKEND` directory:
-
+### **Step 2: Connect your WhatsApp Account**
+Open your terminal and navigate to `BACKEND/`:
 ```powershell
 cd BACKEND
-```
-
-Run the connection check script:
-```powershell
 python connect_whatsapp.py
 ```
-- If connected: Output will show `State: open` and display your connected phone number.
-- If disconnected: A QR code `whatsapp_qr.png` will be generated in `BACKEND/`. Scan it using WhatsApp on your mobile device (**Settings > Linked Devices > Link a Device**).
+- **If already connected**: Output will show `State: open` and display your connected phone number.
+- **If disconnected**: It generates a QR code `whatsapp_qr.png` in `BACKEND/`. Open WhatsApp on your phone (**Settings > Linked Devices > Link a Device**) and scan the QR code.
 
 ---
 
@@ -80,64 +75,60 @@ In a new terminal window inside `BACKEND/`:
 cd BACKEND
 uvicorn app.main:app --reload
 ```
-- Serves API routes at `http://localhost:8000`.
-- Exposes WhatsApp dashboard endpoints at `/api/whatsapp/info`, `/api/whatsapp/chats`, `/api/whatsapp/status`, etc.
+- Listens on `http://localhost:8000`.
+- Serves endpoints for campaigns, calls, and `/api/whatsapp` dashboard APIs (`/api/whatsapp/info`, `/api/whatsapp/chats`, `/api/whatsapp/messages`).
 
 ---
 
 ### **Step 4: Start the Background Queue Worker**
-In another terminal window inside `BACKEND/`:
+In a new terminal window inside `BACKEND/`:
 ```powershell
 cd BACKEND
 python -m app.worker
 ```
-- Processes campaign batch jobs from `callinggen.db`.
-- Triggers outbound SIP calls via LiveKit.
+- Polls `callinggen.db` for campaign jobs.
+- Dispatches outbound SIP calls through LiveKit.
 
 ---
 
 ### **Step 5: Start the LiveKit Voice Agent**
-In another terminal window inside `BACKEND/`:
+In a new terminal window inside `BACKEND/`:
 ```powershell
 cd BACKEND
 python agent.py start
 ```
-- Registers `callinggen-agent-dev` worker with LiveKit.
-- Listens for answered calls, transcribes voice via Sarvam STT, generates AI responses via DeepSeek LLM, and speaks via Sarvam TTS (`shreya`).
+- Registers `callinggen-agent-dev` with LiveKit.
+- Listens for answered calls, transcribes voice using Sarvam STT, generates conversational AI responses using **DeepSeek LLM**, and synthesizes natural speech using Sarvam TTS (`shreya`).
 
 ---
 
-### **Step 6: Start the Frontend Application**
+### **Step 6: Start the Next.js Frontend Application**
 In a new terminal window inside `livekit-frontend-main1/`:
 ```powershell
 cd livekit-frontend-main1
 npm run dev
 ```
-- Open `http://localhost:3000` in your browser.
-- Navigate to **WhatsApp Settings** (`/settings/whatsapp`) to view live connection status, profile details, and full WhatsApp chat logs.
+- Access `http://localhost:3000` in your web browser.
+- Open **WhatsApp Settings** (`/settings/whatsapp`) to view live connection status, profile details, and full WhatsApp chat logs.
 
 ---
 
-## 3. How WhatsApp Integration Works Under the Hood
+## 📲 3. End-to-End Testing Flow
 
-1. **Automatic Phone Number Formatting (`_clean_phone`)**:
-   - Any 10-digit Indian phone number (e.g. `7656807447`) is automatically formatted to international standard `917656807447` before calling Evolution API.
-
-2. **In-Conversation AI Triggers**:
-   - When a user asks the AI agent for a brochure, pricing, catalogue, website link, or contact info during a live phone call:
-   - The agent invokes the `send_whatsapp_material` tool.
-   - Evolution API dispatches the PDF document / text message to the caller's WhatsApp instantly.
-
-3. **Post-Call Follow-ups**:
-   - If a call is declined or busy, `call_service.py` automatically triggers a WhatsApp missed call follow-up message.
+1. **Launch a Campaign**: Create a campaign on the dashboard targeting your test phone number.
+2. **Answer the Phone Call**: As soon as you answer, the agent detects the answered audio track and greets you.
+3. **Trigger WhatsApp Material**: Ask the agent on the call:
+   > *"Can you please send me the brochure on WhatsApp?"*
+4. **Instant WhatsApp Delivery**: The agent calls `send_whatsapp_material`, formats your phone number with country code `91`, and dispatches the document via Evolution API instantly.
+5. **View Chat Logs**: Open the **WhatsApp** tab on the web dashboard to inspect the live message history.
 
 ---
 
-## 4. Troubleshooting Checklist
+## 🔧 4. Troubleshooting Guide
 
-| Issue | Cause | Solution |
+| Symptom | Cause | Resolution |
 | :--- | :--- | :--- |
-| **WhatsApp Status "Disconnected" on Frontend** | FastAPI server not running or `/api/whatsapp` endpoint blocked | Ensure `uvicorn app.main:app --reload` is running on port `8000`. |
-| **Agent is Silent on Call** | Invalid `DEEPSEEK_API_KEY` | Verify `DEEPSEEK_API_KEY` in `.env` is valid and active. |
-| **SIP Call 404 Error** | Wrong trunk ID in `.env` | Ensure `SIP_TRUNK_ID=ST_3yaCewggPpAs` in all `.env` files. |
-| **WhatsApp 400 Bad Request** | Missing country code in phone number | Fixed automatically via `_clean_phone()`. |
+| **Agent stays silent after call connects** | Invalid or expired `DEEPSEEK_API_KEY` | Verify `DEEPSEEK_API_KEY` in `.env` is valid and has active credit. |
+| **WhatsApp status shows "Not Connected" on Frontend** | FastAPI server not running on port 8000 | Run `uvicorn app.main:app --reload` inside `BACKEND/`. |
+| **`TwirpError 404: requested sip trunk does not exist`** | Invalid trunk ID | Check `.env` and verify `SIP_TRUNK_ID=ST_3yaCewggPpAs`. |
+| **Evolution API `400 Bad Request`** | Unformatted phone number | Handled automatically via `_clean_phone()` (auto-adds country code `91`). |
